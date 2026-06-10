@@ -414,9 +414,13 @@ class CoreAIv2Engine:
         t0 = time.perf_counter()
 
         # 가드레일 판정 — NeuralMarkov 전체 코퍼스 기준
-        nm_result = self.nm_engine.evaluate(text, logp_thr=logp_thr)
-        verdict  = nm_result.get("status", "SKIP")
-        best_logp = nm_result.get("avg_logp", 0.0)
+        if not self.nm_engine.is_trained:
+            verdict = "SKIP"
+            best_logp = 0.0
+        else:
+            nm_result = self.nm_engine.evaluate(text, logp_thr=logp_thr)
+            verdict   = nm_result.get("status", "SKIP")
+            best_logp = nm_result.get("avg_logp", 0.0)
 
         # 클러스터별 참고 점수 (표시용)
         tokens = tokenize(text)
