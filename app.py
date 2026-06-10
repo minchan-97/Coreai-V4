@@ -128,7 +128,7 @@ with st.sidebar:
                 else:
                     text = corpus_file.read().decode("utf-8", errors="ignore")
 
-                st.session_state.guideline_hint = text[:500]
+                st.session_state.guideline_hint = text[:2000]
 
                 prog = st.progress(0)
                 status_txt = st.empty()
@@ -149,14 +149,16 @@ with st.sidebar:
                     f"{stats['total_ms']:.0f}ms)"
                 )
 
-                # 자동 저장
+                # 자동 저장 (nm_engine 포함)
                 try:
                     import pickle
+                    nm = st.session_state.engine.nm_engine
                     engine_bytes = pickle.dumps({
                         "n_clusters":      st.session_state.engine.n_clusters,
                         "global_vocab":    st.session_state.engine.global_vocab,
                         "corpus_name":     corpus_file.name,
                         "train_stats":     stats,
+                        "guideline_hint":  st.session_state.guideline_hint,
                         "emb_emb":         st.session_state.engine.embedder.emb,
                         "emb_vocab":       st.session_state.engine.embedder.vocab,
                         "emb_dim":         st.session_state.engine.embedder.dim,
@@ -174,11 +176,19 @@ with st.sidebar:
                             }
                             for k, m in st.session_state.engine.markovs.items()
                         },
+                        # nm_engine 저장
+                        "nm_uni":   dict(nm.uni),
+                        "nm_bi":    {k2: dict(v) for k2,v in nm.bi.items()},
+                        "nm_tri":   {k2: dict(v) for k2,v in nm.tri.items()},
+                        "nm_total": nm.total,
+                        "nm_alpha": nm.alpha,
+                        "nm_emb":   nm.tok_emb if hasattr(nm,'tok_emb') else None,
+                        "nm_w2i":   nm.word2idx if hasattr(nm,'word2idx') else {},
                     })
                     st.session_state.engine_bytes = engine_bytes
                     st.session_state.engine_filename = f"coreai_v2_{corpus_file.name.split('.')[0]}.pkl"
-                except Exception:
-                    pass
+                except Exception as ex:
+                    st.warning(f"저장 실패: {ex}")
             except Exception as e:
                 st.error(f"학습 실패: {e}")
 
@@ -222,14 +232,35 @@ with st.sidebar:
     if pkl_file and not st.session_state.trained:
         try:
             import pickle, time as _t
+            from collections import Counter as _C, defaultdict as _dd
             t0 = _t.perf_counter()
             data = pickle.loads(pkl_file.read())
             engine = CoreAIv2Engine.load_from_dict(data)
+
+            # nm_engine 복원
+            if data.get("nm_total", 0) > 0:
+                nm = engine.nm_engine
+                nm.uni   = _C(data["nm_uni"])
+                nm.bi    = _dd(_C, {k:_C(v) for k,v in data["nm_bi"].items()})
+                nm.tri   = _dd(_C, {k:_C(v) for k,v in data["nm_tri"].items()})
+                nm.total = data["nm_total"]
+                nm.alpha = data.get("nm_alpha", 0.001)
+                if data.get("nm_emb") is not None and data.get("nm_w2i"):
+                    nm.tok_emb  = data["nm_emb"]
+                    nm.word2idx = data["nm_w2i"]
+                    nm.idx2word = {i:w for w,i in nm.word2idx.items()}
+                nm.is_trained = True
+
             elapsed = (_t.perf_counter()-t0)*1000
             st.session_state.engine = engine
             st.session_state.trained = True
             st.session_state.train_stats = data.get("train_stats", {})
-            st.success(f"✓ 엔진 로드 완료 ({elapsed:.0f}ms)")
+
+            # guideline_hint 복원
+            if data.get("guideline_hint"):
+                st.session_state.guideline_hint = data["guideline_hint"]
+
+            st.success(f"✓ 엔진 로드 완료 ({elapsed:.0f}ms) | nm_engine: {'✅' if data.get('nm_total',0)>0 else '❌'}")
             st.rerun()
         except Exception as e:
             st.error(f"로드 실패: {e}")
