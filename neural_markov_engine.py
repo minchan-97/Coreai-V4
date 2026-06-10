@@ -297,6 +297,8 @@ class NeuralMarkovEngine:
         per = []
         if len(tokens) < 3:
             return 0.0, []
+        if self.total == 0 or V == 0:
+            return -20.0, []
         for t in range(2, len(tokens)):
             wc, wp, wpp = tokens[t], tokens[t-1], tokens[t-2]
             p1 = (self.uni[wc] + self.alpha) / (self.total + self.alpha * V)
